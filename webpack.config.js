@@ -43,6 +43,7 @@ if (isProd) {
 }
 
 module.exports = {
+
     entry: entry,
 
     output: {
@@ -59,7 +60,13 @@ module.exports = {
             { test: /\.(png|jpg|ico)$/, exclude: /node_modules/, loader: 'file-loader?name=images/[name].[ext]&context=./src/images' }
         ]
     },
-
+    node: {
+        console: true,
+        fs: 'empty',
+        net: 'empty',
+        tls: 'empty'
+    },
+   
     quiet: false,
     noInfo: false,
 

@@ -1,5 +1,7 @@
 const d3 = require('d3');
-const Tabletop = require('tabletop');
+const HTTPrequest = require('request');
+
+
 const _ = {
     map: require('lodash/map'),
     uniqBy: require('lodash/uniqBy'),
@@ -22,20 +24,12 @@ const ExceptionMessages = require('./exceptionMessages');
 
 const GoogleSheet = function (sheetReference, sheetName) {
     var self = {};
-
     self.build = function () {
-        var sheet = new Sheet(sheetReference);
-        sheet.exists(function(notFound) {
-            if (notFound) {
-                displayErrorMessage(notFound);
-                return;
-            }
-
-            Tabletop.init({
-                key: sheet.id,
-                callback: createRadar
-            });
-        });
+        try {
+            createRadar();
+        } catch (exception) {
+            displayErrorMessage(exception);
+        }
 
         function displayErrorMessage(exception) {
             d3.selectAll(".loading").remove();
@@ -43,8 +37,6 @@ const GoogleSheet = function (sheetReference, sheetName) {
 
             if (exception instanceof MalformedDataError) {
                 message = message.concat(exception.message);
-            } else if (exception instanceof SheetNotFoundError) {
-                message = exception.message;
             } else {
                 console.error(exception);
             }
@@ -60,56 +52,73 @@ const GoogleSheet = function (sheetReference, sheetName) {
                 .html(message);
         }
 
-        function createRadar(__, tabletop) {
+        function createRadar() {
+            
+            function sleep (time) {
+                return new Promise((resolve) => setTimeout(resolve, time));
+            }
 
             try {
 
-                if (!sheetName) {
-                    sheetName = tabletop.foundSheetNames[0];
-                }
-                var columnNames = tabletop.sheets(sheetName).columnNames;
+                var options = {
+                    url: sheetReference,
+                };
 
-                var contentValidator = new ContentValidator(columnNames);
-                contentValidator.verifyContent();
-                contentValidator.verifyHeaders();
+                var json;
+                var myError;
+                HTTPrequest.get(options, function (error, response, body) {
+                    sleep(1000).then(() => {
+                        if (error) throw error;
+                        try {
+                            json = JSON.parse(body);
+                        } catch (ex) {
+                            displayErrorMessage(new MalformedDataError(ex.message));
+                        }
+                        
+                        console.log(json);
+                        var all1 = Object.values(json);
+                        var blips = _.map(all1, new InputSanitizer().sanitize);
+                        
+                        document.title = "technology radar pilot";
 
-                var all = tabletop.sheets(sheetName).all();
-                var blips = _.map(all, new InputSanitizer().sanitize);
+                        d3.selectAll(".loading").remove();
 
-                document.title = tabletop.googleSheetName;
-                d3.selectAll(".loading").remove();
+                        var rings = _.map(_.uniqBy(blips, 'ring'), 'ring');
+                        var ringMap = {};
+                        var maxRings = 4;
 
-                var rings = _.map(_.uniqBy(blips, 'ring'), 'ring');
-                var ringMap = {};
-                var maxRings = 4;
+                        _.each(rings, function (ringName, i) {
+                            if (i == maxRings) {
+                                throw new MalformedDataError(ExceptionMessages.TOO_MANY_RINGS);
+                            }
+                            ringMap[ringName] = new Ring(ringName, i);
+                        });
 
-                _.each(rings, function (ringName, i) {
-                    if (i == maxRings) {
-                        throw new MalformedDataError(ExceptionMessages.TOO_MANY_RINGS);
-                    }
-                    ringMap[ringName] = new Ring(ringName, i);
+                        var quadrants = {};
+                        _.each(blips, function (blip) {
+                            if (!quadrants[blip.quadrant]) {
+                                quadrants[blip.quadrant] = new Quadrant(_.capitalize(blip.quadrant));
+                            }
+                            quadrants[blip.quadrant].add(new Blip(blip.name, ringMap[blip.ring], blip.isNew.toLowerCase() === 'true', blip.topic, blip.description))
+                        });
+
+                        var radar = new Radar();
+                        _.each(quadrants, function (quadrant) {
+                            radar.addQuadrant(quadrant)
+                        });
+
+                        var size = (window.innerHeight - 133) < 620 ? 620 : window.innerHeight - 133;
+
+                        new GraphingRadar(size, radar).init().plot();
+
+                    });
                 });
-
-                var quadrants = {};
-                _.each(blips, function (blip) {
-                    if (!quadrants[blip.quadrant]) {
-                        quadrants[blip.quadrant] = new Quadrant(_.capitalize(blip.quadrant));
-                    }
-                    quadrants[blip.quadrant].add(new Blip(blip.name, ringMap[blip.ring], blip.isNew.toLowerCase() === 'true', blip.topic, blip.description))
-                });
-
-                var radar = new Radar();
-                _.each(quadrants, function (quadrant) {
-                    radar.addQuadrant(quadrant)
-                });
-
-                var size = (window.innerHeight - 133) < 620 ? 620 : window.innerHeight - 133;
-
-                new GraphingRadar(size, radar).init().plot();
 
             } catch (exception) {
                 displayErrorMessage(exception);
             }
+
+        
         }
     };
 
@@ -221,15 +230,14 @@ function plotForm(content) {
     content.append('div')
         .attr('class', 'input-sheet__form')
         .append('p')
-        .html('<strong>Enter the URL of your <a href="https://info.thoughtworks.com/visualize-your-tech-strategy-guide.html#publish-byor-sheet" target="_blank">published</a> Google Sheet below…</strong>');
+        .html('<strong>Enter the URL of your JSON file containing radar data</strong>');
 
     var form = content.select('.input-sheet__form').append('form')
         .attr('method', 'get');
 
     form.append('input')
         .attr('type', 'text')
-        .attr('name', 'sheetId')
-        .attr('placeholder', 'e.g. https://docs.google.com/spreadsheets/d/1waDG0_W3-yNiAaUfxcZhTKvl7AUCgXwQw8mdPjCz86U/');
+        .attr('name', 'sheetId');
 
     form.append('button')
         .attr('type', 'submit')
