@@ -1,0 +1,9 @@
+.git
+.gitignore
+spec/
+README.md
+.vscode
+.dockerignore
+.DS_Store
+.ebextensions
+.elasticbeanstalk
