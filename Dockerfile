@@ -6,7 +6,6 @@ WORKDIR /usr/src/app
 
 # Install app dependencies
 COPY package.json /usr/src/app/
-ENV NODE_ENV production
 RUN npm install
 
 # Bundle app source
@@ -16,4 +15,4 @@ COPY ./webpack.config.js /usr/src/app/
 COPY ./ /usr/src/app/
 
 EXPOSE 8080
-CMD [ "npm", "run", "dev" ]
+CMD [ "npm", "run", "build" ]
